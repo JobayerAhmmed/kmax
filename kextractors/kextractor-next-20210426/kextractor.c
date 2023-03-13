@@ -52,6 +52,7 @@ enum {
   A_MENUSYMS,
   A_DEFAULTS,
   A_EXTRACT,
+  A_EXTRACTALL,
   A_DEPS,
   A_DUMP,
 };
@@ -620,6 +621,7 @@ int main(int argc, char **argv)
       {"forceoff", required_argument, 0, 'f'},
       {"forceoffall", required_argument, 0, 'a'},
       {"extract", no_argument, &action, A_EXTRACT},
+      {"extractall", no_argument, &action, A_EXTRACTALL},
       {"deps", required_argument, &action ,A_DEPS},
       {"dump", no_argument, &action ,A_DUMP},
       {"Configure", no_argument, 0, 'C'},
@@ -1102,6 +1104,228 @@ int main(int argc, char **argv)
         }
       } else {
         /* ffprintf(output_fp, stderr, "skipping %s\n", sym->name); */
+      }
+    }
+    break;
+  case A_EXTRACTALL:
+    for_all_symbols(i, sym) {
+      if (sym_is_choice(sym)) {
+        struct property *cprop;
+        struct symbol *def_sym;
+        struct expr *e;
+
+        cprop = sym_get_choice_prop(sym);
+
+        switch (sym->type) {
+        case S_BOOLEAN:
+        case S_TRISTATE:
+          break;
+        default:
+          fprintf(stderr, "fatal: choice type can only be bool or tristate, otherwise is impossible due to the parser.\n");
+          exit(1);
+        }
+
+        expr_list_for_each_sym(cprop->expr, e, def_sym) {
+          fprintf(output_fp, "dep %s%s (", config_prefix, def_sym->name);
+          int printed_expr = 0;
+          struct property *prop = NULL;
+          for_all_prompts(sym, prop) {
+            if ((NULL != prop)) {
+              if (printed_expr) {
+                fprintf(stderr, "warning: encountered multiple prompts, ignoring.");
+                break;
+              }
+              printed_expr = 1;
+              if (NULL != prop->visible.expr) {
+                print_python_expr(prop->visible.expr, output_fp, E_NONE);
+              }
+              else {
+                fprintf(output_fp, "1");
+              }
+            }
+          }
+          if (!printed_expr)
+            fprintf(output_fp, "1");
+          fprintf(output_fp, ")\n");
+        }
+      }
+
+      if (!sym->name || strlen(sym->name) == 0)
+        continue;
+
+      struct property *prop;
+      char *typename;
+
+      switch (sym->type) {
+      case S_BOOLEAN:
+      case S_TRISTATE:
+      case S_INT:
+      case S_HEX:
+      case S_STRING:
+        switch (sym->type) {
+        case S_BOOLEAN:
+          typename = "bool";
+          break;
+        case S_TRISTATE:
+          typename = "tristate";
+          break;
+        case S_INT:
+          typename = "int";
+          break;
+        case S_HEX:
+          typename = "hex";
+          break;
+        case S_STRING:
+          typename = "string";
+          break;
+        default:
+          typename = "string";
+          break;
+        }
+
+        // name & type
+        fprintf(output_fp, "config %s%s %s\n", config_prefix, sym->name, typename);
+
+        // prompt
+        int printed_expr = 0;
+        prop = NULL;
+        for_all_prompts(sym, prop) {
+          if ((NULL != prop)) {
+            if (printed_expr){
+              fprintf(stderr, "warning: encountered multiple prompts, ignoring.");
+              break;
+            }
+            printed_expr = 1;
+            fprintf(output_fp, "prompt %s%s \"%s\"", config_prefix, sym->name, prop->text);
+            fprintf(output_fp, " |(");
+            if (NULL != prop->visible.expr) {
+              print_python_expr(prop->visible.expr, output_fp, E_NONE);
+            } else {
+              fprintf(output_fp, "1");
+            }
+            fprintf(output_fp, ")");
+            fprintf(output_fp, "\n");
+          }
+        }
+
+        // defaults
+        prop = NULL;
+        for_all_defaults(sym, prop) {
+          if ((NULL != prop) && (NULL != (prop->expr))) {
+            fprintf(output_fp, "def %s%s ", config_prefix, sym->name);
+            print_python_expr(prop->expr, output_fp, E_NONE);
+            fprintf(output_fp, " |(");
+            if (NULL != prop->visible.expr) {
+              print_python_expr(prop->visible.expr, output_fp, E_NONE);
+            } else {
+              fprintf(output_fp, "1");
+            }
+            fprintf(output_fp, ")");
+            fprintf(output_fp, "\n");
+          }
+        }
+
+        // depends on
+        bool no_dependencies = true;
+        if (sym->dir_dep.expr) {
+          no_dependencies = false;
+          fprintf(output_fp, "dep %s%s (", config_prefix, sym->name);
+          print_python_expr(sym->dir_dep.expr, output_fp, E_NONE);
+          fprintf(output_fp, ")\n");
+        }
+
+        /**
+         * reverse dependencies are specified by select.
+         * weak reverse dependencies are specified by imply.
+        */
+        if (enable_reverse_dependencies) {
+          // select
+          prop = NULL;
+          for_all_properties(sym, prop, P_SELECT) {
+            fprintf(output_fp, "select ");
+            print_python_expr(prop->expr, output_fp, E_NONE);
+            fprintf(output_fp, " %s%s |(", config_prefix, sym->name);
+            if (NULL != prop->visible.expr) {
+              print_python_expr(prop->visible.expr, output_fp, E_NONE);
+            } else {
+              fprintf(output_fp, "1");
+            }
+            fprintf(output_fp, ")\n");
+          }
+
+          // reverse dependency
+          if (sym->rev_dep.expr) {
+            no_dependencies = false;
+            fprintf(output_fp, "rev_dep %s%s (", config_prefix, sym->name);
+            print_python_expr(sym->rev_dep.expr, output_fp, E_NONE);
+            fprintf(output_fp, ")\n");
+          }
+
+          // imply
+          prop = NULL;
+          for_all_properties(sym, prop, P_IMPLY) {
+            fprintf(output_fp, "imply ");
+            print_python_expr(prop->expr, output_fp, E_NONE);
+            fprintf(output_fp, " %s%s |(", config_prefix, sym->name);
+            if (NULL != prop->visible.expr) {
+              print_python_expr(prop->visible.expr, output_fp, E_NONE);
+            } else {
+              fprintf(output_fp, "1");
+            }
+            fprintf(output_fp, ")\n");
+          }
+        }
+
+        // nonbools without dependencies should depend on true
+        if (sym->type == S_INT ||
+            sym->type == S_HEX ||
+            sym->type == S_STRING) {
+          if (no_dependencies) {
+            fprintf(output_fp, "dep %s%s (1)\n", config_prefix, sym->name);
+          }
+        }
+
+        // range
+        prop = NULL;
+        for_all_properties(sym, prop, P_RANGE) {
+          fprintf(output_fp, "range %s%s ", config_prefix, sym->name);
+          print_python_expr(prop->expr, output_fp, E_NONE);
+          fprintf(output_fp, " |(");
+          if (NULL != prop->visible.expr) {
+            print_python_expr(prop->visible.expr, output_fp, E_NONE);
+          } else {
+            fprintf(output_fp, "1");
+          }
+          fprintf(output_fp, ")\n");
+        }
+
+        struct menu *menu;
+        if (sym->prop)
+          menu = sym->prop->menu;
+
+        if (menu) {
+          // help
+          if (menu->help) {
+            fprintf(output_fp, "help %s%s ", config_prefix, sym->name);
+            int len = strlen(menu->help);
+            while (menu->help[--len] == '\n')
+              menu->help[len] = 0;
+            char* help_newline_removed = str_replace(menu->help, "\n", "<newline>");
+            fprintf(output_fp, "\"%s\"\n", help_newline_removed);
+            free(help_newline_removed);
+          }
+
+          // line
+          fprintf(output_fp, "line %s%s %d\n", config_prefix, sym->name, menu->lineno);
+
+          // file
+          if (menu->file && menu->file->name)
+            fprintf(output_fp, "file %s%s \"%s\"\n", config_prefix, sym->name, menu->file->name);
+        }
+        break;
+      case S_UNKNOWN:
+      default:
+        break;
       }
     }
     break;

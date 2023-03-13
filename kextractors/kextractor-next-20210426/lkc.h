@@ -59,6 +59,7 @@ void *xcalloc(size_t nmemb, size_t size);
 void *xrealloc(void *p, size_t size);
 char *xstrdup(const char *s);
 char *xstrndup(const char *s, size_t n);
+char *str_replace(char *orig, char *rep, char *with);
 
 /* lexer.l */
 int yylex(void);
