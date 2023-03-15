@@ -125,12 +125,15 @@ void print_symbol_detail(FILE *out, struct symbol *sym, bool force_naked) {
     } else if (strcmp(sym->name, "n") == 0) {
       fprintf(out, "0");
     } else if (S_UNKNOWN == sym->type) {
-      fprintf(out, "0");
+      // fprintf(out, "0");
+      fprintf(out, "%s", sym_escape_string_value(sym->name));
     } else {
       if (! force_naked) {
-        fprintf(out, "(defined CONFIG_%s)", sym->name);
+        // fprintf(out, "(defined CONFIG_%s)", sym->name);
+        fprintf(out, "%s%s", config_prefix, sym->name);
       } else {
-        fprintf(out, "CONFIG_%s", sym->name);
+        // fprintf(out, "CONFIG_%s", sym->name);
+        fprintf(out, "%s%s", config_prefix, sym->name);
       }
     }
     /* switch (sym->type) { */
@@ -238,6 +241,7 @@ void print_expr(struct expr *e, FILE *out, enum expr_type prevtoken)
 	case E_RANGE:
     fprintf(out, "[");
     print_symbol(out, e->left.sym);
+    fprintf(out, " ");
     print_symbol(out, e->right.sym);
     fprintf(out, "]");
 		break;
@@ -1137,7 +1141,7 @@ int main(int argc, char **argv)
               }
               printed_expr = 1;
               if (NULL != prop->visible.expr) {
-                print_python_expr(prop->visible.expr, output_fp, E_NONE);
+                print_expr(prop->visible.expr, output_fp, E_NONE);
               }
               else {
                 fprintf(output_fp, "1");
@@ -1199,7 +1203,7 @@ int main(int argc, char **argv)
             fprintf(output_fp, "prompt %s%s \"%s\"", config_prefix, sym->name, prop->text);
             fprintf(output_fp, " |(");
             if (NULL != prop->visible.expr) {
-              print_python_expr(prop->visible.expr, output_fp, E_NONE);
+              print_expr(prop->visible.expr, output_fp, E_NONE);
             } else {
               fprintf(output_fp, "1");
             }
@@ -1213,10 +1217,10 @@ int main(int argc, char **argv)
         for_all_defaults(sym, prop) {
           if ((NULL != prop) && (NULL != (prop->expr))) {
             fprintf(output_fp, "def %s%s ", config_prefix, sym->name);
-            print_python_expr(prop->expr, output_fp, E_NONE);
+            print_expr(prop->expr, output_fp, E_NONE);
             fprintf(output_fp, " |(");
             if (NULL != prop->visible.expr) {
-              print_python_expr(prop->visible.expr, output_fp, E_NONE);
+              print_expr(prop->visible.expr, output_fp, E_NONE);
             } else {
               fprintf(output_fp, "1");
             }
@@ -1230,7 +1234,7 @@ int main(int argc, char **argv)
         if (sym->dir_dep.expr) {
           no_dependencies = false;
           fprintf(output_fp, "dep %s%s (", config_prefix, sym->name);
-          print_python_expr(sym->dir_dep.expr, output_fp, E_NONE);
+          print_expr(sym->dir_dep.expr, output_fp, E_NONE);
           fprintf(output_fp, ")\n");
         }
 
@@ -1243,10 +1247,10 @@ int main(int argc, char **argv)
           prop = NULL;
           for_all_properties(sym, prop, P_SELECT) {
             fprintf(output_fp, "select ");
-            print_python_expr(prop->expr, output_fp, E_NONE);
+            print_expr(prop->expr, output_fp, E_NONE);
             fprintf(output_fp, " %s%s |(", config_prefix, sym->name);
             if (NULL != prop->visible.expr) {
-              print_python_expr(prop->visible.expr, output_fp, E_NONE);
+              print_expr(prop->visible.expr, output_fp, E_NONE);
             } else {
               fprintf(output_fp, "1");
             }
@@ -1257,7 +1261,7 @@ int main(int argc, char **argv)
           if (sym->rev_dep.expr) {
             no_dependencies = false;
             fprintf(output_fp, "rev_dep %s%s (", config_prefix, sym->name);
-            print_python_expr(sym->rev_dep.expr, output_fp, E_NONE);
+            print_expr(sym->rev_dep.expr, output_fp, E_NONE);
             fprintf(output_fp, ")\n");
           }
 
@@ -1265,10 +1269,10 @@ int main(int argc, char **argv)
           prop = NULL;
           for_all_properties(sym, prop, P_IMPLY) {
             fprintf(output_fp, "imply ");
-            print_python_expr(prop->expr, output_fp, E_NONE);
+            print_expr(prop->expr, output_fp, E_NONE);
             fprintf(output_fp, " %s%s |(", config_prefix, sym->name);
             if (NULL != prop->visible.expr) {
-              print_python_expr(prop->visible.expr, output_fp, E_NONE);
+              print_expr(prop->visible.expr, output_fp, E_NONE);
             } else {
               fprintf(output_fp, "1");
             }
@@ -1289,10 +1293,10 @@ int main(int argc, char **argv)
         prop = NULL;
         for_all_properties(sym, prop, P_RANGE) {
           fprintf(output_fp, "range %s%s ", config_prefix, sym->name);
-          print_python_expr(prop->expr, output_fp, E_NONE);
+          print_expr(prop->expr, output_fp, E_NONE);
           fprintf(output_fp, " |(");
           if (NULL != prop->visible.expr) {
-            print_python_expr(prop->visible.expr, output_fp, E_NONE);
+            print_expr(prop->visible.expr, output_fp, E_NONE);
           } else {
             fprintf(output_fp, "1");
           }
