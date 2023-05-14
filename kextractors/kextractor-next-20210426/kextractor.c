@@ -30,6 +30,9 @@
 #include <sys/time.h>
 #include <stdbool.h>
 
+#include <dirent.h>
+#include <regex.h>
+
 #include "lkc.h"
 
 #define fopen(name, mode) ({                    \
@@ -588,10 +591,140 @@ void print_usage(void)
   printf("--defaults\tprint all configuration variables that are defaults\n");
   printf("--extract\t"
          "extract constraints in kclause format\n");
+  /** @author Jobayer Ahmmed */
+  printf("--extractall\textract all properties from Kconfig files\n");
   printf("--deps VAR\tprint direct and reverse dependencies for VAR\n");
   printf("--dump\t\tdump configuration variables\n");
   printf("\n");
   exit(0);
+}
+
+/**
+ * Search for files by filename in a directory and all of its subdirectory.
+ * Stores filenames in paths array.
+ * 
+ * @author Jobayer Ahmmed
+ */
+void search_file(const char *filename, const char *dir, char **paths, int *count, const int max_paths) {
+  DIR *d = opendir(dir);
+  if (d == NULL) {
+    fprintf(stderr, "Error opening directory %s\n", dir);
+    return;
+  }
+  struct dirent *entry;
+  while ((entry = readdir(d)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    char *filepath = malloc(strlen(dir) + strlen(entry->d_name) + 2);
+    sprintf(filepath, "%s/%s", dir, entry->d_name);
+    if (entry->d_type == DT_DIR) {
+      search_file(filename, filepath, paths, count, max_paths);
+    }
+    else if (entry->d_type == DT_REG && strcmp(entry->d_name, filename) == 0) {
+      if (*count < max_paths) {
+        paths[*count] = filepath;
+        (*count)++;
+      }
+      else {
+        fprintf(stderr, "Error! Max paths reached\n");
+        free(filepath);
+        closedir(d);
+        return;
+      }
+    }
+    else {
+      free(filepath);
+    }
+  }
+  closedir(d);
+}
+
+/**
+ * Read a file line by line, check whether a line starts with "source ".
+ * If the pattern matches, sorround the string after "source "
+ * with double quotes, and then write back the lines to the file.
+ * 
+ * @author Jobayer Ahmmed
+ */
+int quote_sources(char *filename) {
+  const int MAX_FILE_COUNT = 1024;
+  const int MAX_LINE_LENGTH = 1024;
+  char* dir = getcwd(NULL, 0);
+  char* kconfig_files[MAX_FILE_COUNT];
+  int file_count = 0;
+  search_file(filename, dir, kconfig_files, &file_count, MAX_FILE_COUNT);
+
+  regex_t pattern;
+  if (regcomp(&pattern, "^source\\s+([^\"]\\S+)", REG_EXTENDED | REG_NEWLINE) != 0) {
+    fprintf(stderr, "Error compiling regular expression\n");
+    return -1;
+  }
+
+  for (size_t file_index = 0; file_index < file_count; file_index++) {
+    FILE *f = fopen(kconfig_files[file_index], "r");
+    if (f == NULL) {
+      fprintf(stderr, "Error opening file %s\n", kconfig_files[file_index]);
+      return -1;
+    }
+    char *line_buffer = malloc(MAX_LINE_LENGTH * sizeof(char));
+    char **lines = NULL;
+    size_t num_lines = 0;
+    while (fgets(line_buffer, MAX_LINE_LENGTH, f)) {
+      size_t line_length = strlen(line_buffer);
+      char *line = malloc((line_length + 1) * sizeof(char));
+      strcpy(line, line_buffer);
+      lines = realloc(lines, (num_lines + 1) * sizeof(char *));
+      lines[num_lines] = line;
+      num_lines++;
+    }
+    fclose(f);
+    free(line_buffer);
+
+    char source_found = 0;
+    regmatch_t matches[2];
+    for (size_t i = 0; i < num_lines; i++) {
+      if (regexec(&pattern, lines[i], 2, matches, 0) == 0) {
+        source_found = 1;
+        char *match_start = lines[i] + matches[1].rm_so;
+        char *match_end = lines[i] + matches[1].rm_eo;
+        size_t match_length = match_end - match_start;
+        size_t line_length = strlen(lines[i]);
+        char *new_data = malloc((line_length + 3) * sizeof(char *));
+        size_t prefix_length = match_start - lines[i];
+        size_t suffix_length = lines[i] + line_length - match_end;
+        memcpy(new_data, lines[i], prefix_length);
+        new_data[prefix_length] = '"';
+        memcpy(new_data + prefix_length + 1, match_start, match_length);
+        new_data[prefix_length + 1 + match_length] = '"';
+        memcpy(new_data + prefix_length + 2 + match_length, match_end, suffix_length);
+        new_data[line_length + 2] = '\0';
+        free(lines[i]);
+        lines[i] = new_data;
+      }
+    }
+
+    if (source_found) {
+      f = fopen(kconfig_files[file_index], "w");
+      if (f == NULL) {
+        fprintf(stderr, "Error opening file %s for writing\n", kconfig_files[file_index]);
+        return -1;
+      } else {
+        for (size_t i = 0; i < num_lines; i++) {
+          fprintf(f, "%s", lines[i]);
+        }
+      }
+      fclose(f);
+    }
+
+    for (size_t i = 0; i < num_lines; i++) {
+      free(lines[i]);
+    }
+    free(lines);
+    free(kconfig_files[file_index]);
+  }
+  regfree(&pattern);
+  return 1;
 }
 
 int main(int argc, char **argv)
@@ -748,6 +881,18 @@ int main(int argc, char **argv)
     kconfig = argv[optind++];
   else
     kconfig = "Kconfig";
+
+  /**
+   * Double quote source attributes in kconfig files.
+   * 
+   * @author Jobayer Ahmmed
+   */
+  int is_quoted = quote_sources(kconfig);
+  if (is_quoted == -1) {
+    fprintf(stderr, "Error in double quoting source attributes in %s files.\n", kconfig);
+    exit(1);
+  }
+  exit(0);
 
   /* if (bconf_parser) { */
   /*   bconf_parse(kconfig); */
@@ -1112,6 +1257,10 @@ int main(int argc, char **argv)
     }
     break;
   case A_EXTRACTALL:
+    /**
+     * For option --extractall
+     * @author Jobayer Ahmmed
+     */
     for_all_symbols(i, sym) {
       if (sym_is_choice(sym)) {
         struct property *cprop;
@@ -1241,7 +1390,7 @@ int main(int argc, char **argv)
         /**
          * reverse dependencies are specified by select.
          * weak reverse dependencies are specified by imply.
-        */
+         */
         if (enable_reverse_dependencies) {
           // select
           prop = NULL;
