@@ -892,7 +892,6 @@ int main(int argc, char **argv)
     fprintf(stderr, "Error in double quoting source attributes in %s files.\n", kconfig);
     exit(1);
   }
-  exit(0);
 
   /* if (bconf_parser) { */
   /*   bconf_parse(kconfig); */
