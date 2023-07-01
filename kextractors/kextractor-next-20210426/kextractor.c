@@ -600,47 +600,6 @@ void print_usage(void)
 }
 
 /**
- * Search for files by filename in a directory and all of its subdirectory.
- * Stores filenames in paths array.
- * 
- * @author Jobayer Ahmmed
- */
-void search_file(const char *filename, const char *dir, char **paths, int *count, const int max_paths) {
-  DIR *d = opendir(dir);
-  if (d == NULL) {
-    fprintf(stderr, "Error opening directory %s\n", dir);
-    return;
-  }
-  struct dirent *entry;
-  while ((entry = readdir(d)) != NULL) {
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-      continue;
-    }
-    char *filepath = malloc(strlen(dir) + strlen(entry->d_name) + 2);
-    sprintf(filepath, "%s/%s", dir, entry->d_name);
-    if (entry->d_type == DT_DIR) {
-      search_file(filename, filepath, paths, count, max_paths);
-    }
-    else if (entry->d_type == DT_REG && strcmp(entry->d_name, filename) == 0) {
-      if (*count < max_paths) {
-        paths[*count] = filepath;
-        (*count)++;
-      }
-      else {
-        fprintf(stderr, "Error! Max paths reached\n");
-        free(filepath);
-        closedir(d);
-        return;
-      }
-    }
-    else {
-      free(filepath);
-    }
-  }
-  closedir(d);
-}
-
-/**
  * Read a file line by line, check whether a line starts with "source ".
  * If the pattern matches, sorround the string after "source "
  * with double quotes, and then write back the lines to the file.
@@ -653,7 +612,6 @@ int quote_sources(char *filename) {
   char* dir = getcwd(NULL, 0);
   char* kconfig_files[MAX_FILE_COUNT];
   int file_count = 0;
-  search_file(filename, dir, kconfig_files, &file_count, MAX_FILE_COUNT);
 
   regex_t pattern;
   if (regcomp(&pattern, "^source\\s+([^\"]\\S+)", REG_EXTENDED | REG_NEWLINE) != 0) {
@@ -661,7 +619,21 @@ int quote_sources(char *filename) {
     return -1;
   }
 
-  for (size_t file_index = 0; file_index < file_count; file_index++) {
+  char *filepath = malloc(strlen(dir) + strlen(filename) + 2);
+  sprintf(filepath, "%s/%s", dir, filename);
+
+  if (file_count < MAX_FILE_COUNT) {
+    kconfig_files[file_count] = filepath;
+    file_count++;
+  }
+  else {
+    fprintf(stderr, "Error! Max paths reached\n");
+    free(filepath);
+    return -1;
+  }
+
+  int file_index = 0;
+  while (file_index < file_count) {
     FILE *f = fopen(kconfig_files[file_index], "r");
     if (f == NULL) {
       fprintf(stderr, "Error opening file %s\n", kconfig_files[file_index]);
@@ -690,6 +662,25 @@ int quote_sources(char *filename) {
         char *match_end = lines[i] + matches[1].rm_eo;
         size_t match_length = match_end - match_start;
         size_t line_length = strlen(lines[i]);
+
+        // Store source attribute value in kconfig_files, and read and 
+        // update those in next iterations.
+        char *source_value = malloc(match_length + 2);
+        memcpy(source_value, match_start, match_length);
+        source_value[match_length] = '\0';
+        char *source_path = malloc(strlen(dir) + match_length + 2);
+        sprintf(source_path, "%s/%s", dir, source_value);
+        if (file_count < MAX_FILE_COUNT) {
+          kconfig_files[file_count] = source_path;
+          file_count++;
+        }
+        else {
+          fprintf(stderr, "Error! Max paths reached\n");
+          free(source_path);
+          return -1;
+        }
+        free(source_value);
+        
         char *new_data = malloc((line_length + 3) * sizeof(char *));
         size_t prefix_length = match_start - lines[i];
         size_t suffix_length = lines[i] + line_length - match_end;
@@ -722,6 +713,7 @@ int quote_sources(char *filename) {
     }
     free(lines);
     free(kconfig_files[file_index]);
+    file_index++;
   }
   regfree(&pattern);
   return 1;
