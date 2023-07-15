@@ -409,6 +409,11 @@ depends: T_DEPENDS T_ON expr T_EOL
 {
 	menu_add_dep($3);
 	printd(DEBUG_PARSE, "%s:%d:depends on\n", zconf_curname(), zconf_lineno());
+}
+	| T_DEPENDS expr T_EOL
+{
+	menu_add_dep($2);
+	printd(DEBUG_PARSE, "%s:%d:depends\n", zconf_curname(), zconf_lineno());
 };
 
 /* visibility option */
