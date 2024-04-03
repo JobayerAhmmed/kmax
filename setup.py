@@ -45,7 +45,7 @@ setup(
         'regex',
         'z3-solver',
         'dd',
-        'networkx==2.2', # for dd to work on python2
+        'networkx==2.4', # for dd to work on python2
         'requests',
         'whatthepatch',
         'packaging',
