@@ -32,7 +32,11 @@ setup(
     license = "GPLv2+",
     keywords = "makefile kconfig kbuild configurations kmax kclause klocalizer",
     url = "https://github.com/paulgazz/kmax",
-    packages=['kmax', 'pymake'],
+    packages=[
+        'kmax',
+        'pymake',
+        'kmax.resources' # @author Jobayer Ahmmed
+    ],
     ext_modules = [ kextractor_next_20210426, kextractor_next_20200430, kextractor_3_19, kextractor_4_12_8, kextractor_4_18 ],
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -45,7 +49,7 @@ setup(
         'regex',
         'z3-solver',
         'dd',
-        'networkx==2.4', # for dd to work on python2
+        'networkx==2.4', # Updated from 2.2 to 2.4 @author Jobayer Ahmmed
         'requests',
         'whatthepatch',
         'packaging',
